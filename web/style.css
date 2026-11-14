@@ -160,7 +160,12 @@ select, input[type=date] {
 .rec-chip.on { color: var(--fg); border-color: var(--accent); }
 .rec-chip i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; opacity: .55; }
 .rec-chip.on i { opacity: 1; }
-.rec-zoom { display: flex; gap: .3rem; }
+.rec-zoom { display: flex; align-items: center; gap: .3rem; }
+.rec-zoom-lbl { color: var(--muted); font-size: .78rem; margin-right: .1rem; }
+.rec-zoom .rec-zoom-span { min-width: 5.6em; font-variant-numeric: tabular-nums; }
+.rec-daynav button:disabled, .rec-zoom button:disabled { opacity: .4; cursor: default; border-color: var(--line); }
+#rec-reload.spin { animation: rec-spin .8s linear infinite; }
+@keyframes rec-spin { to { transform: rotate(360deg); } }
 
 /* docked player */
 .rec-player { background: #000; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 1rem; }

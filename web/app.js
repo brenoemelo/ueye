@@ -1093,7 +1093,7 @@ const CAN_HEVC = (() => {
   catch { return false; }
 })();
 const REC = {
-  date: null, loaded: false,
+  date: null, loaded: false, loadedAt: 0, loadSeq: 0, sig: null, followToday: true,
   seg: {},                 // channel -> [{beginSec,endSec,...}]
   events: [],              // motion/alarm segments, time-sorted
   filter: new Set(['continuous', 'motion', 'alarm', 'manual']),
@@ -1115,12 +1115,21 @@ const xOf = sec => sec * pps();
 const secAt = x => x / pps();
 
 // --- data load --------------------------------------------------------------
-async function loadDay(date) {
-  REC.date = date; REC.loaded = true;
+// silent=true is a background refresh: no "Loading…", and nothing is redrawn
+// unless the NVR's file list actually changed (keeps scroll + thumbs steady).
+async function loadDay(date, silent = false) {
+  const seq = ++REC.loadSeq;
+  REC.date = date; REC.loaded = true; REC.loadedAt = Date.now();
+  REC.followToday = date === todayISO();   // a "today" view rolls over at midnight
   $('#rec-date').value = date;
-  $('#rec-summary').textContent = 'Loading…';
+  if (!silent) $('#rec-summary').textContent = 'Loading…';
+  $('#rec-reload').classList.add('spin');
   try {
     const r = await api(`/recordings?channel=all&date=${date}&event=all`);
+    if (seq !== REC.loadSeq) return;       // a newer load (other day) won
+    const sig = JSON.stringify(r.days.map(d => (d.files || []).map(f => [f.channel, f.begin, f.end, f.type])));
+    if (silent && sig === REC.sig) return;
+    REC.sig = sig;
     REC.seg = {}; REC.events = [];
     // The NVR also lists a file that started the evening before and runs past
     // midnight, grouped under ITS day, which can come first in `days`. Take
@@ -1137,14 +1146,29 @@ async function loadDay(date) {
     REC.events.sort((a, b) => a.beginSec - b.beginSec || a.channel - b.channel);
     $('#rec-summary').textContent = `${r.count} clips · ${size(r.total_size_kb)} · ${REC.events.length} events`;
   } catch (e) {
+    if (seq !== REC.loadSeq) return;
+    if (silent) return;                    // keep what we have; next tick retries
     $('#rec-summary').textContent = 'Error: ' + e.message;
-    REC.seg = {}; REC.events = [];
+    REC.seg = {}; REC.events = []; REC.sig = null;
+  } finally {
+    if (seq === REC.loadSeq) $('#rec-reload').classList.remove('spin');
   }
+  const evScroll = $('#rec-events').scrollLeft;
   renderFilters(); renderTimeline(); renderEvents();
+  if (silent) $('#rec-events').scrollLeft = evScroll;
 }
+// Bring the list up to date: rolls a "today" view over to the new day, else
+// reloads the same day quietly.
+function refreshRecordings() {
+  if (REC.followToday && REC.date !== todayISO()) loadDay(todayISO());
+  else loadDay(REC.date, true);
+}
+const recVisible = () => !document.hidden && $('#recordings').classList.contains('active');
+const REC_STALE = 20000;    // ms: older than this gets refreshed when you come back
 function onRecordingsShown() {
   if (!REC.loaded) { loadDay(REC.date || todayISO()); return; }
   renderTimeline();   // widths are only correct once the view is visible
+  if (Date.now() - REC.loadedAt > REC_STALE) refreshRecordings();
 }
 
 // --- filters ----------------------------------------------------------------
@@ -1161,7 +1185,7 @@ function renderFilters() {
 // --- timeline render --------------------------------------------------------
 function renderTimeline() {
   const scroll = $('#tl-scroll');
-  REC.fitWidth = Math.max(640, scroll.clientWidth - 2);
+  REC.fitWidth = Math.max(200, scroll.clientWidth - 2);   // "whole day" really fits, phones too
   const width = REC.fitWidth * REC.zoom;
   $('#tl-inner').style.width = width + 'px';
 
@@ -1201,6 +1225,7 @@ function renderTimeline() {
     tracks.appendChild(row);
   }
   positionPlayhead();
+  renderZoomUi();
 }
 
 // --- hover thumbnail --------------------------------------------------------
@@ -1451,16 +1476,40 @@ function jumpEvent(dir) {
 
 // --- day nav + zoom ---------------------------------------------------------
 function shiftDay(n) { const d = new Date(REC.date + 'T00:00:00'); d.setDate(d.getDate() + n); loadDay(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`); }
+const ZOOM_MAX = 48;
+// Zoom keeps the playhead in place when a clip is open, else the middle of the view.
 function setZoom(z) {
-  const sc = $('#tl-scroll'), mid = (sc.scrollLeft + sc.clientWidth / 2) / (REC.fitWidth * REC.zoom);
-  REC.zoom = Math.max(1, Math.min(48, z));
+  const sc = $('#tl-scroll'), oldW = REC.fitWidth * REC.zoom;
+  const ph = $('#tl-playhead');
+  const phX = REC.play.ch != null && !ph.classList.contains('hidden') ? parseFloat(ph.style.left) : NaN;
+  const anchorX = phX >= sc.scrollLeft && phX <= sc.scrollLeft + sc.clientWidth ? phX - sc.scrollLeft : sc.clientWidth / 2;
+  const frac = (sc.scrollLeft + anchorX) / oldW;
+  REC.zoom = Math.max(1, Math.min(ZOOM_MAX, z));
   renderTimeline();
-  sc.scrollLeft = mid * REC.fitWidth * REC.zoom - sc.clientWidth / 2;
+  sc.scrollLeft = frac * REC.fitWidth * REC.zoom - anchorX;
+}
+// The middle button shows how much of the day is on screen; tap = whole day.
+function renderZoomUi() {
+  const sc = $('#tl-scroll');
+  const span = DAY * Math.min(1, sc.clientWidth / (REC.fitWidth * REC.zoom));
+  const lbl = REC.zoom <= 1 ? 'Whole day' : span >= 3600 ? `${Math.round(span / 3600)} h` : `${Math.max(1, Math.round(span / 60))} min`;
+  $('#rec-fit').textContent = lbl;
+  $('#rec-fit').disabled = REC.zoom <= 1;
+  $('#rec-zoomout').disabled = REC.zoom <= 1;
+  $('#rec-zoomin').disabled = REC.zoom >= ZOOM_MAX;
 }
 function bindRecordingControls() {
   $('#rec-prev').onclick = () => shiftDay(-1);
   $('#rec-next').onclick = () => shiftDay(1);
   $('#rec-today').onclick = () => loadDay(todayISO());
+  $('#rec-reload').onclick = () => loadDay(REC.date || todayISO(), true);
+  // Coming back to the app (phone unlock, PWA reopen, tab switch): catch up.
+  document.addEventListener('visibilitychange', () => {
+    if (recVisible() && REC.loaded && Date.now() - REC.loadedAt > REC_STALE) refreshRecordings();
+  });
+  window.addEventListener('pageshow', e => { if (e.persisted && recVisible()) refreshRecordings(); });
+  // While watching today: new clips/events show up by themselves (one cheap list call a minute).
+  setInterval(() => { if (recVisible() && REC.followToday) refreshRecordings(); }, 60000);
   $('#rec-date').onchange = e => loadDay(e.target.value);
   $('#rec-zoomin').onclick = () => setZoom(REC.zoom * 1.8);
   $('#rec-zoomout').onclick = () => setZoom(REC.zoom / 1.8);
