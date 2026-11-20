@@ -559,9 +559,9 @@ def _nvr_health() -> dict[str, Any]:
         disks.append({"total_mb": total, "free_mb": free,
                       "ok": all(int(p.get("Status", 0)) == 0 for p in parts),
                       "oldest": min(starts) if starts else None, "newest": max(ends) if ends else None})
-    link = int(str(chstat.get("ChnLinkStatus", "0")), 16)
-    loss = int((work.get("AlarmState") or {}).get("VideoLoss", 0))
-    blind = int((work.get("AlarmState") or {}).get("VideoBlind", 0))
+    link = _bitmask(chstat.get("ChnLinkStatus", 0))
+    loss = _bitmask((work.get("AlarmState") or {}).get("VideoLoss", 0))
+    blind = _bitmask((work.get("AlarmState") or {}).get("VideoBlind", 0))
     states = work.get("ChannelState") or []
     cams = []
     for ch in CFG.channels:
@@ -578,6 +578,19 @@ def _nvr_health() -> dict[str, Any]:
         "retention_days": round((datetime.now() - datetime.strptime(oldest, _FMT)).total_seconds() / 86400, 1) if oldest else None,
         "cameras": cams,
     }
+
+
+def _bitmask(v) -> int:
+    """Per-channel bit mask from WorkState. Firmwares send a number (2) or a hex
+    string, with or without 0x ("0x00000002", "00000002", "ff")."""
+    if isinstance(v, int):
+        return v
+    s = str(v or "").strip()
+    try:
+        return int(s, 16) if s else 0
+    except ValueError:
+        print(f"[health] unreadable channel mask {v!r}, treating as 0", flush=True)
+        return 0
 
 
 @app.get("/api/health/status")
