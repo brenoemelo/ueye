@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import socket
 import struct
 import threading
@@ -25,7 +26,25 @@ from typing import Any
 LOGIN_REQ = 1000
 # OPFileQuery: the NVR returns at most this many files per query (64 on a
 # Xiongmai NBD80S16S-KL) and answers Ret 119 when the range has no files.
-SEARCH_PAGE_CAP = 64
+# The reply carries no "truncated" flag (Ret 100 either way), so a page this
+# size is taken as full. Firmwares with a smaller cap: set UEYE_SEARCH_PAGE_CAP.
+# A bigger page than the cap raises it for the rest of the run.
+def _env_page_cap(default: int = 64) -> int:
+    raw = os.environ.get("UEYE_SEARCH_PAGE_CAP", "").strip()
+    if not raw:
+        return default
+    try:
+        v = int(raw)
+        if v >= 1:
+            return v
+    except ValueError:
+        pass
+    print(f"[search] UEYE_SEARCH_PAGE_CAP={raw!r} is not a positive number, using {default}", flush=True)
+    return default
+
+
+SEARCH_PAGE_CAP = _env_page_cap()
+_page_cap = SEARCH_PAGE_CAP            # learned: grows if the NVR sends more
 SEARCH_MAX_PAGES = 50
 RET_NO_FILES = 119
 LOGIN_RSP = 1000
@@ -249,7 +268,8 @@ class DVRIPClient:
     ) -> list[dict[str, Any]]:
         """List ALL recordings in [begin, end] (strings 'YYYY-MM-DD HH:MM:SS').
 
-        The NVR returns at most SEARCH_PAGE_CAP files per OPFileQuery, even for a
+        The NVR returns at most a page of files per OPFileQuery (SEARCH_PAGE_CAP,
+        raised if a bigger page is ever seen), even for a
         single day: a camera recording short motion clips easily has 150+ files a
         day. When a page comes back full, ask again from the latest BeginTime on
         it (not EndTime: a long file would make us skip shorter ones that start
@@ -271,7 +291,10 @@ class DVRIPClient:
             new = [f for f in page if f.get("FileName") not in seen]
             seen.update(f.get("FileName") for f in new)
             out += new
-            if len(page) < SEARCH_PAGE_CAP or not new:
+            global _page_cap
+            if len(page) > _page_cap:
+                _page_cap = len(page)
+            if len(page) < _page_cap or not new:
                 break
             nxt = max(str(f.get("BeginTime", "")) for f in page)
             if nxt <= cursor:

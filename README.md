@@ -135,6 +135,10 @@ config generation and the seasonal sounds.
 Note: config shapes like `Detect.MotionDetect` vary by firmware; they're handled
 generically but your box may differ.
 
+The NVR returns at most 64 recordings per search here and uEye pages past that.
+If yours returns fewer per search (a busy day stops early in Recordings), set
+`UEYE_SEARCH_PAGE_CAP` on the container to that number.
+
 ## Layout
 
 ```

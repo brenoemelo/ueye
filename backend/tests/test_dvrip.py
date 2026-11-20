@@ -206,3 +206,30 @@ def test_search_first_page_error_still_raises():
     c._search_page = fake
     with pytest.raises(DVRIPError):
         c.search_recordings(0, *DAY)
+
+
+def test_page_cap_from_env(monkeypatch):
+    import dvrip
+    monkeypatch.setenv("UEYE_SEARCH_PAGE_CAP", "32")
+    assert dvrip._env_page_cap() == 32
+    for bad in ("0", "-5", "abc"):
+        monkeypatch.setenv("UEYE_SEARCH_PAGE_CAP", bad)
+        assert dvrip._env_page_cap() == 64
+    monkeypatch.delenv("UEYE_SEARCH_PAGE_CAP")
+    assert dvrip._env_page_cap() == 64
+
+
+def test_smaller_cap_pages_when_configured(monkeypatch):
+    import dvrip
+    monkeypatch.setattr(dvrip, "_page_cap", 32)
+    c, calls = _paged_client([_files(0, 32), _files(31, 5)])
+    assert len(c.search_recordings(0, *DAY)) == 36
+    assert len(calls) == 2
+
+
+def test_cap_is_learned_upward(monkeypatch):
+    import dvrip
+    monkeypatch.setattr(dvrip, "_page_cap", 64)
+    c, calls = _paged_client([_files(0, 128), _files(127, 5)])
+    assert len(c.search_recordings(0, *DAY)) == 132
+    assert dvrip._page_cap == 128
