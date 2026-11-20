@@ -39,7 +39,17 @@ import pause  # noqa: E402
 
 # Face sorting is optional: if the CV stack isn't installed the rest of the API
 # still works and the face endpoints report unavailable.
+# UEYE_FACES=0 turns it off on purpose (privacy, CPU): no OpenCV import, no model
+# downloads, no background face/person scan; the People view reports it disabled.
+# Privacy switch fails closed: only an explicit yes (or unset) keeps it on, so a
+# typo such as UEYE_FACES=disabled turns it off instead of silently on.
+_faces_env = os.environ.get("UEYE_FACES", "1").strip().lower()
+FACES_ENABLED = _faces_env in ("1", "true", "yes", "on")
+if _faces_env not in ("1", "true", "yes", "on", "0", "false", "no", "off"):
+    print(f"[faces] UEYE_FACES={_faces_env!r} not understood: face scanning is OFF", flush=True)
 try:
+    if not FACES_ENABLED:
+        raise RuntimeError("disabled by UEYE_FACES=0")
     import numpy as np  # noqa: E402
     import cv2  # noqa: E402
     import faces as faceslib  # noqa: E402
@@ -55,6 +65,10 @@ try:
 except Exception as _face_err:  # pragma: no cover
     FACES_OK = False
     _FACE_IMPORT_ERR = str(_face_err)
+    _face_dir = Path(os.environ.get("FACE_DB", "/config/faces/faces.db")).parent
+    if not FACES_ENABLED and _face_dir.exists():
+        print(f"[faces] off, but face/visitor data from earlier runs is still in {_face_dir}; "
+              "delete that folder to remove it", flush=True)
 
 app = FastAPI(title="uEye", version="0.1.0")
 app.include_router(auth.router)
@@ -523,7 +537,8 @@ def nvr_time():
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {"ok": True, "nvr": f"{CFG.host}:{CFG.port}",
-            "channels": [{"id": c.id, "name": c.name} for c in CFG.channels]}
+            "channels": [{"id": c.id, "name": c.name} for c in CFG.channels],
+            "faces": FACES_OK}
 
 
 # --- health: NVR disk, retention, cameras, clock + NAS-side usage -----------

@@ -41,6 +41,9 @@ Taken from the running install (3 Nov 2026). Faces are blurred and IPs in the ac
 - **Visitors:** a person detector (YOLOX, CPU) checks every alert, so it finds people from behind, under a hood or carrying a parcel. Alerts within 3 minutes are grouped into one visit with the best shot on top. Click to watch.
 - **Faces:** faces from those frames are grouped by person (YuNet + SFace). Groups of the same person merge automatically; anything left over can be merged by hand with *Merge into*.
 - New alerts are scanned in the background within about 5 minutes, and the last 7 days are kept filled in.
+- Optional: set `UEYE_FACES=0` on the container to turn People off entirely (privacy, CPU). Then OpenCV
+  is not loaded, no model is downloaded, nothing is scanned in the background and the People tab is hidden.
+  Faces and visitor crops saved before are not deleted: remove `/config/faces` to get rid of them.
 
 **Settings**
 - **Health:** each camera (online, recording, bitrate), disks, how many days of footage are kept, NVR model / firmware / uptime, clock, and uEye's own disk use. A two-step *Reboot NVR* button for when the NVR stops serving playback.
