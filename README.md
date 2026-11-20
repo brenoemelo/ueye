@@ -53,6 +53,8 @@ Taken from the running install (3 Nov 2026). Faces are blurred and IPs in the ac
 
 **Behind the scenes**
 - The NVR has no internet (firewalled), so uEye keeps its clock right: checked hourly, corrected when it drifts more than 2 s.
+  It uses the container's local time, so set `TZ` (e.g. `TZ=Europe/Amsterdam`); without it the container
+  runs on UTC and the NVR clock would be moved to UTC.
 - Background work (thumbnails, person and face scans) runs on one low-priority thread, about 1 core at most while busy.
 - Installable as an app on the iPhone home screen (PWA).
 
