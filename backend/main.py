@@ -677,8 +677,8 @@ def recordings(
     with nvr() as conn:
         for ch in chans:
             for day in day_list:
-                # query one day at a time: the NVR caps results per OPFileQuery,
-                # so a wide range would truncate. Per-day stays under the cap.
+                # one day at a time keeps each listing small; search_recordings
+                # pages past the NVR's per-query cap when a day has more files.
                 b, e = f"{day} 00:00:00", f"{day} 23:59:59"
                 try:
                     for f in conn.search_recordings(ch, b, e, stream=stream):
